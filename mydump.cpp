@@ -52,6 +52,19 @@ string format_mac(char *str) {
     return s;
 }
 
+char* sanitize_payload(char* str) {
+    char sanitizied_payload[strlen(str) - 1];
+    char *ch = str, *pl = sanitizied_payload, *s_pl = sanitizied_payload;
+    while (*ch) {
+        if (isprint(*ch)) {
+            *pl = *ch;
+            pl++;
+        }
+        ch++;
+    }
+    return s_pl;
+}
+
 /* Ethernet header */
 struct sniff_ethernet {
     const struct ether_addr ether_dhost; /* Destination host address */
@@ -218,7 +231,9 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
         size_payload = header->len - SIZE_ETHERNET;
     }
     if (*args and strlen((char *)args) > 0) {
-        if (!strstr((char *) payload, (char *)args)) return;
+        char *sanitizied_payload = sanitize_payload((char *)payload); // such that non-printable characters 
+                                                                      // doesn't give incorrect results during string matching
+        if (sanitizied_payload == NULL || size_payload == 0 || (!strstr(sanitizied_payload, (char *)args))) return;
     }
     cout << packet_info << endl;
     if (size_payload > 0) {
