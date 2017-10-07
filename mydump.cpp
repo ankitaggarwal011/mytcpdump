@@ -52,17 +52,18 @@ string format_mac(char *str) {
     return s;
 }
 
-char* sanitize_payload(char* str) {
-    char sanitizied_payload[strlen(str) - 1];
-    char *ch = str, *pl = sanitizied_payload, *s_pl = sanitizied_payload;
-    while (*ch) {
-        if (isprint(*ch)) {
-            *pl = *ch;
-            pl++;
+/* strstr implementation to avoid EOF inconsistencies while parsing payload */
+char* my_strstr(char *haystack, char *needle, int haystack_len) {
+    int needle_len = strlen(needle), i = 0;
+    while (i < haystack_len) {
+        if (*haystack == *needle) {
+            if (!strncmp(haystack, needle, needle_len))
+                return ((char *)haystack);
         }
-        ch++;
+        haystack++;
+        i++;
     }
-    return s_pl;
+    return NULL;
 }
 
 /* Ethernet header */
@@ -177,6 +178,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
     ss << hex << ntohs(ethernet->ether_type);
     string packet_type(ss.str());
     packet_info += " type 0x" + packet_type;
+    packet_info += " len " + to_s(header->len) + " "; // Packet length
     if (ntohs(ethernet->ether_type) == IPV4) {
         ip = (struct sniff_ip *)(packet + SIZE_ETHERNET);
         size_ip = IP_HL(ip) * 4;
@@ -191,7 +193,6 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
                 cout << "Invalid TCP header length." << endl;
                 return;
             }
-            packet_info += " len " + to_s(header->len) + " "; // confusion, should it print Ethernet packet length or IP packet length to_s(ntohs(ip->ip_len))
             packet_info += to_s(inet_ntoa(ip->ip_src)) + ":" + to_s(ntohs(tcp->th_sport)) + " -> ";
             packet_info += to_s(inet_ntoa(ip->ip_dst)) + ":" + to_s(ntohs(tcp->th_dport));
             packet_info += " TCP ";
@@ -201,7 +202,6 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
         }
         else if (ip->ip_p == IPPROTO_UDP) {
             udp = (struct sniff_udp *)(packet + SIZE_ETHERNET + size_ip);
-            packet_info += " len " + to_s(header->len) + " ";
             packet_info += to_s(inet_ntoa(ip->ip_src)) + ":" + to_s(ntohs(udp->sport)) + " -> ";
             packet_info += to_s(inet_ntoa(ip->ip_dst)) + ":" + to_s(ntohs(udp->dport));
             packet_info += " UDP ";
@@ -210,7 +210,6 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
             size_payload = ntohs(ip->ip_len) - (size_ip + size_udp);
         }
         else if (ip->ip_p == IPPROTO_ICMP) {
-            packet_info += " len " + to_s(header->len) + " ";
             packet_info += to_s(inet_ntoa(ip->ip_src)) + " -> ";
             packet_info += to_s(inet_ntoa(ip->ip_dst));
             packet_info += " ICMP ";
@@ -219,21 +218,18 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
             size_payload = ntohs(ip->ip_len) - (size_ip + size_icmp);
         }
         else {
-            packet_info += " OTHER ";
+            packet_info += "OTHER ";
 
             payload = (u_char *)(packet + SIZE_ETHERNET + size_ip);
             size_payload = ntohs(ip->ip_len) - size_ip;
         }
     }
     else {
-        packet_info += " len " + to_s(header->len) + " ";
         payload = (u_char *)(packet + SIZE_ETHERNET);
         size_payload = header->len - SIZE_ETHERNET;
     }
     if (*args and strlen((char *)args) > 0) {
-        char *sanitizied_payload = sanitize_payload((char *)payload); // such that non-printable characters 
-                                                                      // doesn't give incorrect results during string matching
-        if (sanitizied_payload == NULL || size_payload == 0 || (!strstr(sanitizied_payload, (char *)args))) return;
+        if (payload == NULL || size_payload == 0 || (!my_strstr((char *)payload, (char *)args, size_payload))) return;
     }
     cout << packet_info << endl;
     if (size_payload > 0) {
